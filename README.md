@@ -76,6 +76,26 @@ npm run build
 
 ---
 
+## 🚀 Deploying to Vercel
+
+The project is pre-configured for one-click deployment on [Vercel](https://vercel.com):
+
+1. **Push to GitHub / GitLab / Bitbucket**:
+   - Push this repository to your Git provider.
+2. **Import into Vercel**:
+   - Go to [vercel.com/new](https://vercel.com/new) and import the repository.
+3. **Configure Project Settings**:
+   - **Framework Preset**: `Vite` (auto-detected)
+   - **Build Command**: `vite build` or `npm run build`
+   - **Output Directory**: `dist`
+   - **Install Command**: `npm install`
+4. **Environment Variables**:
+   - Add `Whatsappnumber` = `8293252829` (or your preferred WhatsApp phone number).
+5. **Click Deploy**:
+   - The included `vercel.json` and `.npmrc` ensure smooth dependency resolution and client-side SPA routing.
+
+---
+
 ## 📦 Project Structure
 
 ```

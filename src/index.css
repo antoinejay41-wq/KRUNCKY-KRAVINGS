@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg: #1a1022;
+    --surface: #25172f;
+    --ink: #f6eefa;
+    --muted: #b7a5c3;
+    --line: #3a2848;
+    --brand: #c77bf0;
+    --brand-ink: #1a1022;
+    --pink: #ee7ee0;
+    --wa: #25b866;
+    --wa-ink: #06150c;
+    --chip: #ffffff;
+    --font-heading: "Bagel Fat One", system-ui, cursive, sans-serif;
+    --font-body: "Nunito", system-ui, -apple-system, sans-serif;
+  }
+
+  :root[data-theme="light"] {
+    --bg: #faf5fc;
+    --surface: #ffffff;
+    --ink: #2a1633;
+    --muted: #6f5c7a;
+    --line: #e8dcef;
+    --brand: #8b25c0;
+    --brand-ink: #ffffff;
+    --pink: #d63fc8;
+    --wa: #128c4a;
+    --wa-ink: #ffffff;
+    --chip: transparent;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    margin: 0;
+    min-height: 100vh;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, .font-heading {
+    font-family: var(--font-heading);
+    font-weight: 400;
+  }
+}
+
+.font-bagel {
+  font-family: var(--font-heading);
+}
+
+.font-nunito {
+  font-family: var(--font-body);
+}
+
+/* Custom scrollbar for drawer items */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Krunchy Kravings",
+  "description": "Satisfy your krave with premium edible clay and crunch treats. Order your favorite size packages seamlessly via WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -18,6 +18,7 @@ export default defineConfig(() => {
       'import.meta.env.VITE_WHATSAPP_NUMBER': JSON.stringify(
         (() => {
           const raw =
+            process.env.VITE_WHATSAPP_NUMBER ||
             process.env.Whatsappnumber ||
             process.env.WHATSAPPNUMBER ||
             process.env.WHATSAPP_NUMBER ||
@@ -30,20 +31,28 @@ export default defineConfig(() => {
         })()
       ),
       'import.meta.env.VITE_CASHAPP_URL': JSON.stringify(
+        process.env.VITE_CASHAPP_URL ||
         process.env.Cashapp ||
         process.env.CASHAPP ||
         'https://cash.app/$11en11en'
       ),
       'import.meta.env.VITE_ZELLE_INFO': JSON.stringify(
+        process.env.VITE_ZELLE_INFO ||
         process.env.Zelle ||
         process.env.ZELLE ||
         'viztunellc@gmail.com'
       ),
       'import.meta.env.VITE_APPLEPAY_INFO': JSON.stringify(
+        process.env.VITE_APPLEPAY_INFO ||
         process.env.Applapay ||
         process.env.APPLEPAY ||
         process.env.APPLE_PAY ||
         '19432049964'
+      ),
+      'import.meta.env.VITE_ADMIN_EMAIL': JSON.stringify(
+        process.env.VITE_ADMIN_EMAIL ||
+        process.env.ADMIN_EMAIL ||
+        'antoinejay41@gmail.com'
       ),
     },
     server: {

@@ -12,7 +12,6 @@ import {
   ADMIN_EMAIL,
 } from "../services/storeService";
 import { User } from "firebase/auth";
-import { resolvedFirebaseConfig } from "../firebase";
 import {
   X,
   Upload,
@@ -32,7 +31,6 @@ import {
   Eye,
   EyeOff,
   ArrowLeft,
-  Copy,
 } from "lucide-react";
 
 interface AdminModalProps {
@@ -1004,49 +1002,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-
-          {/* Vercel Environment Variables Export */}
-          <div className="pt-4 border-t border-[var(--line)]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-              <div>
-                <h3 className="font-bagel text-lg text-[var(--ink)]">
-                  Vercel Environment Variables (.env)
-                </h3>
-                <p className="text-xs text-[var(--muted)]">
-                  Copy and paste directly into Vercel → Project Settings → Environment Variables.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const envText = [
-                    `VITE_FIREBASE_PROJECT_ID="${resolvedFirebaseConfig.projectId}"`,
-                    `VITE_FIREBASE_APP_ID="${resolvedFirebaseConfig.appId}"`,
-                    `VITE_FIREBASE_API_KEY="${resolvedFirebaseConfig.apiKey}"`,
-                    `VITE_FIREBASE_AUTH_DOMAIN="${resolvedFirebaseConfig.authDomain}"`,
-                    `VITE_FIREBASE_DATABASE_ID="${resolvedFirebaseConfig.firestoreDatabaseId}"`,
-                    `VITE_FIREBASE_STORAGE_BUCKET="${resolvedFirebaseConfig.storageBucket}"`,
-                    `VITE_FIREBASE_MESSAGING_SENDER_ID="${resolvedFirebaseConfig.messagingSenderId}"`,
-                    `VITE_FIREBASE_OAUTH_CLIENT_ID="${resolvedFirebaseConfig.oAuthClientId}"`,
-                    `VITE_ADMIN_EMAIL="${newAdminEmail || ADMIN_EMAIL}"`,
-                    `Whatsappnumber="${draft.wa}"`,
-                    `Cashapp="${draft.payment?.cashApp || ""}"`,
-                    `Zelle="${draft.payment?.zelle || ""}"`,
-                    `Applapay="${draft.payment?.applePay || ""}"`,
-                  ].join("\n");
-                  navigator.clipboard.writeText(envText);
-                  setFeedback({
-                    type: "success",
-                    text: "All 13 Vercel environment variables copied to clipboard! Paste directly into Vercel.",
-                  });
-                }}
-                className="px-3.5 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-ink)] text-xs font-extrabold hover:brightness-110 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>Copy All .env for Vercel</span>
-              </button>
-            </div>
           </div>
 
           {/* Reset Demo Option */}

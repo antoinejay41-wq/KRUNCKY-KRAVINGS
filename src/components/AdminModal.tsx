@@ -4,7 +4,10 @@ import {
   uploadStoreImage,
   signInAdmin,
   signOutAdmin,
-  setVerifiedAdminSession,
+  loginAdminWithEmailPassword,
+  updateAdminPassword,
+  hasAdminPasswordConfigured,
+  getConfiguredAdminEmail,
   getActiveAdminEmail,
   ADMIN_EMAIL,
 } from "../services/storeService";
@@ -18,11 +21,16 @@ import {
   Check,
   AlertCircle,
   ShieldCheck,
-  ShieldAlert,
   LogIn,
   LogOut,
   Loader2,
   Cloud,
+  Lock,
+  Mail,
+  KeyRound,
+  Eye,
+  EyeOff,
+  ArrowLeft,
 } from "lucide-react";
 
 interface AdminModalProps {
@@ -53,14 +61,30 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
-  const [emailInput, setEmailInput] = useState("");
+
+  // Login Page form states
+  const [loginEmail, setLoginEmail] = useState(() => getConfiguredAdminEmail(config));
+  const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Change Password inside Admin Editor states
+  const [newAdminEmail, setNewAdminEmail] = useState(() => getConfiguredAdminEmail(config));
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isUpdatingCreds, setIsUpdatingCreds] = useState(false);
+
   const wasOpenRef = useRef(false);
 
   // Sync draft ONLY when modal transitions from closed to open
-  // so saving & staying on page never wipes out current state or feedback
   useEffect(() => {
     if (isOpen && !wasOpenRef.current) {
       setDraft(JSON.parse(JSON.stringify(config)));
+      setLoginEmail(getConfiguredAdminEmail(config));
+      setNewAdminEmail(getConfiguredAdminEmail(config));
+      setLoginPassword("");
+      setLoginError(null);
       setFeedback(null);
     }
     wasOpenRef.current = isOpen;
@@ -80,6 +104,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   if (!isOpen) return null;
 
   const activeEmail = getActiveAdminEmail(adminUser);
+  const isPasswordSet = hasAdminPasswordConfigured(config);
 
   const normalizeConfig = (sourceDraft: StoreConfig): StoreConfig => {
     let cleanWa = String(sourceDraft.wa || "").replace(/\D/g, "");
@@ -128,50 +153,65 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     };
   };
 
-  const handleSignIn = async () => {
+  // Handle Email & Password Login submission
+  const handleEmailPasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     setAuthLoading(true);
-    setFeedback(null);
+    setLoginError(null);
+
     try {
-      const user = await signInAdmin();
-      if (user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-        onAdminVerified?.();
-        setFeedback({
-          type: "success",
-          text: `Welcome back, ${user.displayName || "Admin"}! You have full access to edit and upload to Firebase.`,
-        });
-      } else {
-        setFeedback({
-          type: "error",
-          text: `Signed in as ${user.email}. Admin privileges require ${ADMIN_EMAIL}.`,
-        });
+      const result = await loginAdminWithEmailPassword(
+        loginEmail,
+        loginPassword,
+        config,
+        rememberMe
+      );
+
+      if (result.updatedConfig) {
+        setDraft(result.updatedConfig);
+        await onSaveConfig(result.updatedConfig);
       }
-    } catch (err: any) {
-      // Automatically activate verified admin session if popup is blocked by iframe restrictions
-      setVerifiedAdminSession(ADMIN_EMAIL);
+
       onAdminVerified?.();
+      setLoginPassword("");
       setFeedback({
         type: "success",
-        text: `Admin session verified for ${ADMIN_EMAIL}. You can upload photos and save changes.`,
+        text: result.isFirstSetup
+          ? `Admin password saved and signed in as ${result.email}!`
+          : `Welcome back! Signed in as ${result.email}.`,
       });
+    } catch (err: any) {
+      setLoginError(err?.message || "Invalid email or password. Please try again.");
     } finally {
       setAuthLoading(false);
     }
   };
 
-  const handleVerifyEmail = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (setVerifiedAdminSession(emailInput)) {
-      onAdminVerified?.();
-      setEmailInput("");
-      setFeedback({
-        type: "success",
-        text: `Verified administrator session for ${ADMIN_EMAIL}.`,
-      });
-    } else {
-      setFeedback({
-        type: "error",
-        text: `Please enter the authorized admin email (${ADMIN_EMAIL}).`,
-      });
+  // Optional Google Sign-In handler on Login Page
+  const handleGoogleSignIn = async () => {
+    setAuthLoading(true);
+    setLoginError(null);
+    try {
+      const user = await signInAdmin();
+      const allowed = getConfiguredAdminEmail(config);
+      if (
+        user.email?.toLowerCase() === allowed ||
+        user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+      ) {
+        onAdminVerified?.();
+        setFeedback({
+          type: "success",
+          text: `Welcome back, ${user.displayName || user.email}!`,
+        });
+      } else {
+        setLoginError(`Signed in as ${user.email}, which is not authorized as store admin.`);
+      }
+    } catch (err: any) {
+      setLoginError(
+        err?.message || "Google sign-in popup was closed or blocked. Please sign in with your email and password above."
+      );
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -179,9 +219,41 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     try {
       await signOutAdmin();
       onAdminVerified?.();
-      setFeedback({ type: "success", text: "Signed out successfully." });
+      setLoginPassword("");
+      setLoginError(null);
+      setFeedback(null);
     } catch {
       setFeedback({ type: "error", text: "Failed to sign out." });
+    }
+  };
+
+  const handleUpdateCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAdminPassword.trim()) {
+      setFeedback({
+        type: "error",
+        text: "Please enter a new password (at least 4 characters) to update credentials.",
+      });
+      return;
+    }
+    setIsUpdatingCreds(true);
+    setFeedback(null);
+    try {
+      const updated = await updateAdminPassword(newAdminEmail, newAdminPassword, draft);
+      setDraft(updated);
+      await onSaveConfig(updated);
+      setNewAdminPassword("");
+      setFeedback({
+        type: "success",
+        text: "Admin login email & password updated and synced to Firebase!",
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        text: err?.message || "Failed to update admin password.",
+      });
+    } finally {
+      setIsUpdatingCreds(false);
     }
   };
 
@@ -196,7 +268,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       const nextDraft: StoreConfig = { ...draft, logo: downloadUrl };
       setDraft(nextDraft);
 
-      // Automatically save to Firebase so the uploaded logo persists while staying on page
       await onSaveConfig(normalizeConfig(nextDraft));
 
       setFeedback({
@@ -231,7 +302,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       const nextDraft: StoreConfig = { ...draft, products: nextProducts };
       setDraft(nextDraft);
 
-      // Automatically save to Firebase so the uploaded photo persists while staying on page
       await onSaveConfig(normalizeConfig(nextDraft));
 
       setFeedback({
@@ -319,6 +389,196 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
+  // ============================================================================
+  // GATE 1: DEDICATED ADMIN LOGIN PAGE (SHOWN BEFORE ACCESSING THE EDIT PART)
+  // ============================================================================
+  if (!isAdmin) {
+    return (
+      <div
+        id="admin-login"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Admin Login"
+        className="fixed inset-0 bg-[var(--bg)] z-50 overflow-y-auto flex flex-col justify-between p-5 pt-[env(safe-area-inset-top,20px)]"
+      >
+        {/* Top bar */}
+        <div className="max-w-[440px] w-full mx-auto flex items-center justify-between py-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-2 text-sm font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to store</span>
+          </button>
+
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[var(--pink)]/15 text-[var(--pink)] border border-[var(--pink)]/30">
+            <Lock className="w-3 h-3" />
+            <span>Protected Admin Area</span>
+          </span>
+        </div>
+
+        {/* Center Login Card */}
+        <div className="max-w-[440px] w-full mx-auto my-auto py-6">
+          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-2xl p-6 sm:p-8 shadow-2xl">
+            {/* Store Logo & Title */}
+            <div className="flex flex-col items-center text-center mb-6">
+              {config.logo ? (
+                <div className="bg-white px-3.5 py-2 rounded-xl border border-gray-200 mb-4 shadow-sm">
+                  <img
+                    src={config.logo}
+                    alt={config.name}
+                    className="h-11 w-auto max-w-[160px] object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-[var(--brand)]/20 border border-[var(--brand)]/40 flex items-center justify-center text-[var(--brand)] mb-4">
+                  <Lock className="w-6 h-6" />
+                </div>
+              )}
+
+              <h2 className="font-bagel text-2xl sm:text-3xl text-[var(--brand)] font-normal">
+                Admin Login
+              </h2>
+              <p className="text-xs sm:text-sm text-[var(--muted)] mt-1.5">
+                {isPasswordSet
+                  ? "Enter your administrator email and password to unlock store settings, prices, and photo uploads."
+                  : `First-time admin setup: Enter your admin email (${getConfiguredAdminEmail(config)}) and choose a password to protect your store.`}
+              </p>
+            </div>
+
+            {/* Login Error Message */}
+            {loginError && (
+              <div className="mb-5 p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-xs sm:text-sm font-semibold flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            {/* Email & Password Login Form */}
+            <form onSubmit={handleEmailPasswordLogin} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="admin-email-input"
+                  className="block text-xs font-bold uppercase tracking-wider text-[var(--muted)] mb-1.5"
+                >
+                  Admin Email
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-[var(--muted)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id="admin-email-input"
+                    type="email"
+                    required
+                    autoComplete="username"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder={ADMIN_EMAIL}
+                    className="w-full pl-10 pr-3.5 py-3 text-sm rounded-xl border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] focus:border-[var(--brand)] focus:outline-none transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="admin-password-input"
+                  className="block text-xs font-bold uppercase tracking-wider text-[var(--muted)] mb-1.5"
+                >
+                  {isPasswordSet ? "Password" : "Create Admin Password"}
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-[var(--muted)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id="admin-password-input"
+                    type={showLoginPassword ? "text" : "password"}
+                    required
+                    minLength={4}
+                    autoComplete={isPasswordSet ? "current-password" : "new-password"}
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder={isPasswordSet ? "Enter your password" : "Choose a password (min 4 chars)"}
+                    className="w-full pl-10 pr-10 py-3 text-sm rounded-xl border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] focus:border-[var(--brand)] focus:outline-none transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword((prev) => !prev)}
+                    aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--ink)] p-1 cursor-pointer"
+                  >
+                    {showLoginPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <label className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--muted)] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded accent-[var(--brand)]"
+                  />
+                  <span>Keep me signed in on this device</span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full py-3.5 px-4 rounded-xl bg-[var(--brand)] text-[var(--brand-ink)] font-extrabold text-sm sm:text-base hover:brightness-110 active:scale-[0.99] transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {authLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <LogIn className="w-4 h-4" />
+                )}
+                <span>
+                  {isPasswordSet ? "Sign In to Admin Panel" : "Save Password & Sign In"}
+                </span>
+              </button>
+            </form>
+
+            {/* Optional Google OAuth Divider */}
+            <div className="relative my-5">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[var(--line)]"></div>
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="px-2.5 bg-[var(--surface)] text-[var(--muted)] font-semibold">
+                  OR
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={authLoading}
+              className="w-full py-2.5 px-4 rounded-xl border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] text-xs sm:text-sm font-bold hover:border-[var(--brand)] transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <Cloud className="w-4 h-4 text-[var(--brand)]" />
+              <span>Continue with Google ({ADMIN_EMAIL})</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Footer note */}
+        <div className="max-w-[440px] w-full mx-auto text-center py-2">
+          <p className="text-xs text-[var(--muted)]">
+            Protected by Firebase Authentication & Cloud Firestore Security
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // GATE 2: AUTHENTICATED STORE ADMIN EDITOR
+  // ============================================================================
   return (
     <div
       id="admin"
@@ -330,106 +590,44 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       <div className="max-w-[640px] mx-auto px-5 pb-36 pt-4">
         {/* Header */}
         <div className="flex justify-between items-center py-4 border-b border-[var(--line)] mb-5">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="font-bagel text-2xl sm:text-3xl text-[var(--brand)] font-normal">
               Store admin
             </h2>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[var(--pink)]/15 text-[var(--pink)] border border-[var(--pink)]/30">
-              <Cloud className="w-3 h-3" />
-              <span>Firebase Connected</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-green-500/15 text-green-400 border border-green-500/30">
+              <ShieldCheck className="w-3 h-3" />
+              <span>Authenticated</span>
             </span>
           </div>
 
-          <button
-            onClick={onClose}
-            aria-label="Close admin"
-            className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--ink)] hover:text-[var(--pink)] hover:bg-[var(--surface)] transition-colors cursor-pointer"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] text-xs font-bold text-[var(--ink)] hover:border-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Log Out</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              aria-label="Close admin"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--ink)] hover:text-[var(--pink)] hover:bg-[var(--surface)] transition-colors cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
-        {/* Firebase Authentication Status Card */}
-        <div className="mb-6 p-4 rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              {isAdmin ? (
-                <div className="p-2 rounded-lg bg-green-500/15 text-green-400 border border-green-500/30">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-              ) : (
-                <div className="p-2 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                  <ShieldAlert className="w-5 h-5" />
-                </div>
-              )}
-
-              <div>
-                <div className="text-sm font-bold text-[var(--ink)] flex items-center gap-2">
-                  <span>Firebase Admin Status</span>
-                  {isAdmin ? (
-                    <span className="text-[11px] font-semibold text-green-400 bg-green-500/15 px-2 py-0.5 rounded-md">
-                      Verified Admin
-                    </span>
-                  ) : (
-                    <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-md">
-                      Sign-in Optional
-                    </span>
-                  )}
-                </div>
-
-                <p className="text-xs text-[var(--muted)] mt-0.5">
-                  {activeEmail
-                    ? `Signed in as ${activeEmail}`
-                    : `Sign in with Google (${ADMIN_EMAIL}) to verify your admin session.`}
-                </p>
-              </div>
-            </div>
-
-            <div className="shrink-0">
-              {isAdmin ? (
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] text-xs font-semibold text-[var(--ink)] hover:border-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Sign Out</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSignIn}
-                  disabled={authLoading}
-                  className="px-3.5 py-2 rounded-lg bg-[var(--brand)] text-[var(--brand-ink)] text-xs font-extrabold flex items-center gap-1.5 hover:brightness-110 active:scale-95 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                >
-                  {authLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <LogIn className="w-3.5 h-3.5" />
-                  )}
-                  <span>Sign in as Admin</span>
-                </button>
-              )}
-            </div>
+        {/* Active Admin Session Banner */}
+        <div className="mb-5 p-3.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Cloud className="w-4 h-4 text-[var(--brand)] shrink-0" />
+            <span className="text-xs text-[var(--muted)]">
+              Logged in as <strong className="text-[var(--ink)]">{activeEmail || ADMIN_EMAIL}</strong> — All photo uploads & price edits sync to Firebase.
+            </span>
           </div>
-
-          {!isAdmin && (
-            <form onSubmit={handleVerifyEmail} className="mt-3 pt-3 border-t border-[var(--line)] flex gap-2">
-              <input
-                type="email"
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                placeholder={`Or enter admin email (${ADMIN_EMAIL})`}
-                className="flex-1 text-xs p-2 px-3 border border-[var(--line)] rounded-lg bg-[var(--bg)] text-[var(--ink)] focus:border-[var(--brand)] focus:outline-none"
-              />
-              <button
-                type="submit"
-                className="px-3 py-1.5 rounded-lg border border-[var(--brand)] text-[var(--brand)] text-xs font-bold hover:bg-[var(--brand)]/10 transition-colors cursor-pointer"
-              >
-                Verify Email
-              </button>
-            </form>
-          )}
         </div>
 
         {/* Feedback message at top for immediate visibility when staying on page */}
@@ -735,6 +933,75 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               <Plus className="w-4 h-4" />
               <span>+ Add another package</span>
             </button>
+          </div>
+
+          {/* Admin Login Credentials Settings */}
+          <div className="pt-4 border-t border-[var(--line)]">
+            <h3 className="font-bagel text-lg text-[var(--ink)] mb-2">
+              Admin Login Security (Email & Password)
+            </h3>
+            <p className="text-xs text-[var(--muted)] mb-3">
+              Update the administrator email or change the password required to access this admin panel.
+            </p>
+            <form
+              onSubmit={handleUpdateCredentials}
+              className="p-3.5 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] space-y-3"
+            >
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-xs font-semibold text-[var(--muted)]">
+                    Admin Email
+                  </span>
+                  <input
+                    type="email"
+                    required
+                    value={newAdminEmail}
+                    onChange={(e) => setNewAdminEmail(e.target.value)}
+                    className="mt-1 w-full text-sm p-2 px-2.5 border border-[var(--line)] rounded-lg bg-[var(--bg)] text-[var(--ink)] focus:border-[var(--brand)] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <span className="text-xs font-semibold text-[var(--muted)]">
+                    New Password
+                  </span>
+                  <div className="relative mt-1">
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      minLength={4}
+                      value={newAdminPassword}
+                      onChange={(e) => setNewAdminPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="w-full text-sm p-2 pl-2.5 pr-8 border border-[var(--line)] rounded-lg bg-[var(--bg)] text-[var(--ink)] focus:border-[var(--brand)] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword((prev) => !prev)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
+                    >
+                      {showNewPassword ? (
+                        <EyeOff className="w-3.5 h-3.5" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isUpdatingCreds}
+                  className="px-3.5 py-2 rounded-lg bg-[var(--brand)]/20 border border-[var(--brand)] text-[var(--brand)] text-xs font-extrabold hover:bg-[var(--brand)] hover:text-[var(--brand-ink)] transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isUpdatingCreds ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Lock className="w-3.5 h-3.5" />
+                  )}
+                  <span>Update Password</span>
+                </button>
+              </div>
+            </form>
           </div>
 
           {/* Reset Demo Option */}

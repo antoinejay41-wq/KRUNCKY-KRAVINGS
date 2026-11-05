@@ -10,6 +10,8 @@ import {
 } from "firebase/storage";
 import {
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   User,
@@ -28,36 +30,99 @@ import { resizeImageFile } from "../utils/format";
 
 export const STORE_CONFIG_DOC_PATH = "store/config";
 export const ADMIN_EMAIL = "antoinejay41@gmail.com";
-const ADMIN_SESSION_KEY = "kk-admin-verified-email";
+const ADMIN_AUTH_SESSION_KEY = "kk-admin-authenticated-v2";
+const ADMIN_PWD_HASH_KEY = "kk-admin-password-hash";
+const ADMIN_CUSTOM_EMAIL_KEY = "kk-admin-email";
 
 /**
- * Check if the given authenticated user or session is authorized as store administrator
+ * Compute SHA-256 hex digest of a password string
  */
-export function isUserAdmin(user: User | null): boolean {
-  if (user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-    return true;
+export async function hashPassword(password: string): Promise<string> {
+  const normalized = password.trim();
+  if (typeof window !== "undefined" && window.crypto?.subtle) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(`kk_salt_2026_${normalized}`);
+    const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // Fallback deterministic hash if subtle crypto unavailable
+  let h = 2166136261;
+  const str = `kk_salt_2026_${normalized}`;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * Get the configured admin email (from config, localStorage, or default)
+ */
+export function getConfiguredAdminEmail(config?: StoreConfig): string {
+  if (config?.adminEmail?.trim()) {
+    return config.adminEmail.trim().toLowerCase();
   }
   try {
-    const savedEmail = localStorage.getItem(ADMIN_SESSION_KEY);
-    if (savedEmail && savedEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    const saved = localStorage.getItem(ADMIN_CUSTOM_EMAIL_KEY);
+    if (saved?.trim()) return saved.trim().toLowerCase();
+  } catch {}
+  return ADMIN_EMAIL.toLowerCase();
+}
+
+/**
+ * Check if an admin password has already been configured
+ */
+export function hasAdminPasswordConfigured(config?: StoreConfig): boolean {
+  if (config?.adminPasswordHash) return true;
+  try {
+    return Boolean(localStorage.getItem(ADMIN_PWD_HASH_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if the given user or current session is authenticated as store administrator
+ */
+export function isUserAdmin(user: User | null): boolean {
+  if (user?.email) {
+    const allowedEmail = getConfiguredAdminEmail();
+    if (
+      user.email.toLowerCase() === allowedEmail ||
+      user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+    ) {
       return true;
+    }
+  }
+  try {
+    const sessionEmail = sessionStorage.getItem(ADMIN_AUTH_SESSION_KEY) || localStorage.getItem(ADMIN_AUTH_SESSION_KEY);
+    if (sessionEmail) {
+      const allowedEmail = getConfiguredAdminEmail();
+      if (
+        sessionEmail.toLowerCase() === allowedEmail ||
+        sessionEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+      ) {
+        return true;
+      }
     }
   } catch {}
   return false;
 }
 
 /**
- * Persist verified admin email session locally
+ * Persist authenticated admin session
  */
-export function setVerifiedAdminSession(email: string): boolean {
+export function setVerifiedAdminSession(email: string, rememberMe: boolean = true): void {
   const clean = email.trim().toLowerCase();
-  if (clean === ADMIN_EMAIL.toLowerCase()) {
-    try {
-      localStorage.setItem(ADMIN_SESSION_KEY, ADMIN_EMAIL);
-    } catch {}
-    return true;
-  }
-  return false;
+  try {
+    sessionStorage.setItem(ADMIN_AUTH_SESSION_KEY, clean);
+    if (rememberMe) {
+      localStorage.setItem(ADMIN_AUTH_SESSION_KEY, clean);
+    } else {
+      localStorage.removeItem(ADMIN_AUTH_SESSION_KEY);
+    }
+  } catch {}
 }
 
 /**
@@ -66,12 +131,132 @@ export function setVerifiedAdminSession(email: string): boolean {
 export function getActiveAdminEmail(user: User | null): string | null {
   if (user?.email) return user.email;
   try {
-    const saved = localStorage.getItem(ADMIN_SESSION_KEY);
-    if (saved && saved.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-      return saved;
-    }
+    const saved =
+      sessionStorage.getItem(ADMIN_AUTH_SESSION_KEY) ||
+      localStorage.getItem(ADMIN_AUTH_SESSION_KEY);
+    if (saved) return saved;
   } catch {}
   return null;
+}
+
+/**
+ * Authenticate admin using Email & Password.
+ * Connects to Firebase Auth Email/Password when enabled in Firebase Console,
+ * and verifies/stores SHA-256 hashed credentials in Cloud Firestore.
+ */
+export async function loginAdminWithEmailPassword(
+  email: string,
+  password: string,
+  config: StoreConfig,
+  rememberMe: boolean = true
+): Promise<{ email: string; updatedConfig?: StoreConfig; isFirstSetup: boolean }> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPass = password.trim();
+
+  if (!cleanEmail || !cleanEmail.includes("@")) {
+    throw new Error("Please enter a valid admin email address.");
+  }
+  if (cleanPass.length < 4) {
+    throw new Error("Password must be at least 4 characters.");
+  }
+
+  const allowedEmail = getConfiguredAdminEmail(config);
+  if (cleanEmail !== allowedEmail && cleanEmail !== ADMIN_EMAIL.toLowerCase()) {
+    throw new Error(`Unauthorized email. Please sign in with the store admin email (${allowedEmail}).`);
+  }
+
+  const inputHash = await hashPassword(cleanPass);
+  let storedHash = config.adminPasswordHash || "";
+  if (!storedHash) {
+    try {
+      storedHash = localStorage.getItem(ADMIN_PWD_HASH_KEY) || "";
+    } catch {}
+  }
+
+  // Attempt Firebase Auth Email/Password sign-in if enabled on the Firebase project
+  try {
+    await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+  } catch (fbErr: any) {
+    const code = fbErr?.code || "";
+    if (!storedHash && (code === "auth/user-not-found" || code === "auth/invalid-credential")) {
+      try {
+        await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+      } catch {
+        // Ignore if Email/Password provider is not enabled in Firebase console yet
+      }
+    } else if (code === "auth/wrong-password") {
+      throw new Error("Incorrect admin password. Please try again.");
+    }
+  }
+
+  // If a password hash already exists, verify it strictly
+  if (storedHash) {
+    if (inputHash !== storedHash) {
+      throw new Error("Incorrect admin password. Please try again.");
+    }
+    try {
+      localStorage.setItem(ADMIN_PWD_HASH_KEY, storedHash);
+      localStorage.setItem(ADMIN_CUSTOM_EMAIL_KEY, cleanEmail);
+    } catch {}
+    setVerifiedAdminSession(cleanEmail, rememberMe);
+    return { email: cleanEmail, isFirstSetup: false };
+  }
+
+  // First-time password setup: save hash to localStorage and Cloud Firestore
+  try {
+    localStorage.setItem(ADMIN_PWD_HASH_KEY, inputHash);
+    localStorage.setItem(ADMIN_CUSTOM_EMAIL_KEY, cleanEmail);
+  } catch {}
+
+  const updatedConfig: StoreConfig = {
+    ...config,
+    adminEmail: cleanEmail,
+    adminPasswordHash: inputHash,
+  };
+
+  try {
+    await saveStoreConfigToFirestore(updatedConfig, auth.currentUser);
+  } catch (e) {
+    console.warn("Saved admin password locally:", e);
+  }
+
+  setVerifiedAdminSession(cleanEmail, rememberMe);
+  return { email: cleanEmail, updatedConfig, isFirstSetup: true };
+}
+
+/**
+ * Update admin email and/or password from inside the Admin Panel
+ */
+export async function updateAdminPassword(
+  newEmail: string,
+  newPassword: string,
+  config: StoreConfig
+): Promise<StoreConfig> {
+  const cleanEmail = newEmail.trim().toLowerCase();
+  const cleanPass = newPassword.trim();
+
+  if (!cleanEmail || !cleanEmail.includes("@")) {
+    throw new Error("Please provide a valid admin email address.");
+  }
+  if (cleanPass.length < 4) {
+    throw new Error("New password must be at least 4 characters.");
+  }
+
+  const newHash = await hashPassword(cleanPass);
+  try {
+    localStorage.setItem(ADMIN_PWD_HASH_KEY, newHash);
+    localStorage.setItem(ADMIN_CUSTOM_EMAIL_KEY, cleanEmail);
+  } catch {}
+
+  const updatedConfig: StoreConfig = {
+    ...config,
+    adminEmail: cleanEmail,
+    adminPasswordHash: newHash,
+  };
+
+  await saveStoreConfigToFirestore(updatedConfig, auth.currentUser);
+  setVerifiedAdminSession(cleanEmail, true);
+  return updatedConfig;
 }
 
 /**
@@ -80,16 +265,13 @@ export function getActiveAdminEmail(user: User | null): string | null {
 export async function signInAdmin(): Promise<User> {
   try {
     const result = await signInWithPopup(auth, googleAuthProvider);
-    if (result.user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-      setVerifiedAdminSession(result.user.email);
+    if (result.user?.email) {
+      setVerifiedAdminSession(result.user.email, true);
     }
     return result.user;
   } catch (err) {
-    // If Firebase Auth already completed sign-in before popup cleanup
-    if (auth.currentUser) {
-      if (auth.currentUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-        setVerifiedAdminSession(auth.currentUser.email);
-      }
+    if (auth.currentUser?.email) {
+      setVerifiedAdminSession(auth.currentUser.email, true);
       return auth.currentUser;
     }
     throw err;
@@ -101,7 +283,9 @@ export async function signInAdmin(): Promise<User> {
  */
 export async function signOutAdmin(): Promise<void> {
   try {
-    localStorage.removeItem(ADMIN_SESSION_KEY);
+    sessionStorage.removeItem(ADMIN_AUTH_SESSION_KEY);
+    localStorage.removeItem(ADMIN_AUTH_SESSION_KEY);
+    localStorage.removeItem("kk-admin-verified-email");
   } catch {}
   await signOut(auth);
 }
@@ -113,8 +297,14 @@ export function subscribeAdminAuth(
   callback: (user: User | null, isAdmin: boolean) => void
 ): () => void {
   return onAuthStateChanged(auth, (user) => {
-    if (user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-      setVerifiedAdminSession(user.email);
+    if (user?.email) {
+      const allowed = getConfiguredAdminEmail();
+      if (
+        user.email.toLowerCase() === allowed ||
+        user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+      ) {
+        setVerifiedAdminSession(user.email, true);
+      }
     }
     const admin = isUserAdmin(user);
     callback(user, admin);
@@ -148,7 +338,6 @@ export async function uploadStoreImage(
 
     return await Promise.race([uploadPromise, timeoutPromise]);
   } catch {
-    // Reliable fallback: optimized compressed image stored in Firestore config document
     return await resizeImageFile(file, maxDimension, format);
   }
 }
@@ -164,8 +353,15 @@ export async function saveStoreConfigToFirestore(
   const docRef = doc(db, "store", "config");
 
   const cleanWa = String(config.wa || "18293252827").replace(/\D/g, "") || "18293252827";
+  let storedHash = config.adminPasswordHash || "";
+  if (!storedHash) {
+    try {
+      storedHash = localStorage.getItem(ADMIN_PWD_HASH_KEY) || "";
+    } catch {}
+  }
+  const adminEmail = getConfiguredAdminEmail(config);
 
-  const cleanData = {
+  const cleanData: Record<string, any> = {
     name: (config.name.trim() || "Krunchy Kravings").slice(0, 200),
     logo: config.logo || "",
     wa: cleanWa.slice(0, 50),
@@ -196,9 +392,14 @@ export async function saveStoreConfigToFirestore(
         import.meta.env.VITE_APPLEPAY_INFO ||
         "19432049964",
     },
+    adminEmail: adminEmail.slice(0, 128),
     updatedAt: new Date().toISOString(),
-    updatedBy: (adminUser?.uid || auth.currentUser?.uid || ADMIN_EMAIL).slice(0, 128),
+    updatedBy: (adminUser?.uid || auth.currentUser?.uid || adminEmail || ADMIN_EMAIL).slice(0, 128),
   };
+
+  if (storedHash) {
+    cleanData.adminPasswordHash = storedHash.slice(0, 256);
+  }
 
   try {
     await setDoc(docRef, cleanData);
@@ -222,6 +423,16 @@ export function subscribeStoreConfigFromFirestore(
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data && Array.isArray(data.products) && data.name) {
+          if (data.adminPasswordHash) {
+            try {
+              localStorage.setItem(ADMIN_PWD_HASH_KEY, data.adminPasswordHash);
+            } catch {}
+          }
+          if (data.adminEmail) {
+            try {
+              localStorage.setItem(ADMIN_CUSTOM_EMAIL_KEY, data.adminEmail);
+            } catch {}
+          }
           onUpdate({
             name: data.name,
             logo: data.logo,
@@ -231,6 +442,8 @@ export function subscribeStoreConfigFromFirestore(
             shippingFee: typeof data.shippingFee === "number" ? data.shippingFee : 10.99,
             products: data.products,
             payment: data.payment,
+            adminEmail: data.adminEmail,
+            adminPasswordHash: data.adminPasswordHash,
           });
         }
       }

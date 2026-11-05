@@ -23,6 +23,8 @@ export interface StoreConfig {
   shippingFee: number;
   products: Product[];
   payment?: PaymentConfig;
+  adminEmail?: string;
+  adminPasswordHash?: string;
 }
 
 export type CartState = Record<string, number>;

@@ -36,6 +36,8 @@ service cloud.firestore {
         && (!('logo' in data) || (data.logo is string && data.logo.size() <= 900000))
         && (!('shippingFee' in data) || (data.shippingFee is number && data.shippingFee >= 0))
         && data.products is list && data.products.size() <= 100
+        && (!('adminEmail' in data) || (data.adminEmail is string && data.adminEmail.size() <= 128))
+        && (!('adminPasswordHash' in data) || (data.adminPasswordHash is string && data.adminPasswordHash.size() <= 256))
         && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() > 0 && data.updatedBy.size() <= 128));
     }
 

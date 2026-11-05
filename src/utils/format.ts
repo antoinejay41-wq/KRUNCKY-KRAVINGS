@@ -6,11 +6,11 @@ export const formatMoney = (amount: number): string => {
 
 export const cleanWhatsAppPhone = (phone: string): string => {
   let digits = String(phone || "").replace(/\D/g, "");
-  // If 10 digits (e.g. 8293252829 for Dominican Republic / NANP), prefix with country code 1
+  // If 10 digits (e.g. 8293252827 for Dominican Republic / NANP), prefix with country code 1
   if (digits.length === 10) {
     digits = "1" + digits;
   }
-  return digits || "18293252829";
+  return digits || "18293252827";
 };
 
 export const generateWhatsAppUrl = (
@@ -21,7 +21,8 @@ export const generateWhatsAppUrl = (
   name: string,
   address: string,
   notes?: string,
-  shippingFee: number = 10.99
+  shippingFee: number = 10.99,
+  paymentMethod?: string
 ): string => {
   const cleanPhone = cleanWhatsAppPhone(phone);
   
@@ -51,6 +52,7 @@ export const generateWhatsAppUrl = (
     "",
     `Name: ${name}`,
     `Delivery: ${address}`,
+    paymentMethod ? `Payment Method: ${paymentMethod}` : null,
     notes ? `Notes: ${notes}` : null,
   ]
     .filter((line) => line !== null)

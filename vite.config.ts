@@ -21,13 +21,29 @@ export default defineConfig(() => {
             process.env.Whatsappnumber ||
             process.env.WHATSAPPNUMBER ||
             process.env.WHATSAPP_NUMBER ||
-            '18293252829';
+            '18293252827';
           let digits = String(raw).replace(/\D/g, '');
           if (digits.length === 10) {
             digits = '1' + digits;
           }
-          return digits || '18293252829';
+          return digits || '18293252827';
         })()
+      ),
+      'import.meta.env.VITE_CASHAPP_URL': JSON.stringify(
+        process.env.Cashapp ||
+        process.env.CASHAPP ||
+        'https://cash.app/$11en11en'
+      ),
+      'import.meta.env.VITE_ZELLE_INFO': JSON.stringify(
+        process.env.Zelle ||
+        process.env.ZELLE ||
+        'viztunellc@gmail.com'
+      ),
+      'import.meta.env.VITE_APPLEPAY_INFO': JSON.stringify(
+        process.env.Applapay ||
+        process.env.APPLEPAY ||
+        process.env.APPLE_PAY ||
+        '19432049964'
       ),
     },
     server: {

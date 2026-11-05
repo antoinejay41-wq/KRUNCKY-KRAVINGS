@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "StoreConfig": {
+      "title": "StoreConfig",
+      "description": "Configuration, catalog, prices, and settings for Krunchy Kravings store",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100, "description": "Store display name" },
+        "logo": { "type": "string", "maxLength": 500000, "description": "Store logo image URL or base64" },
+        "wa": { "type": "string", "maxLength": 30, "description": "WhatsApp contact number with country code" },
+        "headline": { "type": "string", "maxLength": 200, "description": "Hero section headline" },
+        "sub": { "type": "string", "maxLength": 500, "description": "Hero section subtext" },
+        "shippingFee": { "type": "number", "description": "Standard shipping cost in USD" },
+        "products": { "type": "array", "description": "List of available product packages" },
+        "payment": { "type": "object", "description": "Payment methods configuration" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Timestamp of last update" },
+        "updatedBy": { "type": "string", "maxLength": 128, "description": "UID of admin who made the update" }
+      },
+      "required": ["name", "wa", "products"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrator account metadata",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 128, "description": "Admin email address" },
+        "role": { "type": "string", "enum": ["admin"], "description": "Administrative role" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of admin creation" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/store/{storeId}": {
+      "schema": "StoreConfig",
+      "description": "Store configuration and live catalog data"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "List of authorized administrator user IDs"
+    }
+  }
+}

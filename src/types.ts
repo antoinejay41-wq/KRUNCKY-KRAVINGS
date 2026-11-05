@@ -6,6 +6,14 @@ export interface Product {
   soldOut: boolean;
 }
 
+export interface PaymentConfig {
+  cashApp: string;
+  zelle: string;
+  applePay: string;
+}
+
+export type PaymentMethod = "cashapp" | "zelle" | "applepay";
+
 export interface StoreConfig {
   name: string;
   logo: string;
@@ -14,6 +22,7 @@ export interface StoreConfig {
   sub: string;
   shippingFee: number;
   products: Product[];
+  payment?: PaymentConfig;
 }
 
 export type CartState = Record<string, number>;

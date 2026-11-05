@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect } from "react";
 import { Header } from "./components/Header";
 import { Hero } from "./components/Hero";
@@ -12,6 +7,14 @@ import { AdminModal } from "./components/AdminModal";
 import { Footer } from "./components/Footer";
 import { initialStoreConfig } from "./data/initialData";
 import { StoreConfig, CartState } from "./types";
+import {
+  subscribeStoreConfigFromFirestore,
+  saveStoreConfigToFirestore,
+  subscribeAdminAuth,
+  isUserAdmin,
+  testConnection,
+} from "./services/storeService";
+import { User } from "firebase/auth";
 
 const STORE_CONFIG_KEY = "kk-store-config";
 const CART_STORAGE_KEY = "kk-cart";
@@ -35,11 +38,17 @@ export default function App() {
               ? parsed.shippingFee
               : (initialStoreConfig.shippingFee ?? 10.99);
 
+          const payment = {
+            ...initialStoreConfig.payment,
+            ...(parsed.payment || {}),
+          };
+
           return {
             ...initialStoreConfig,
             ...parsed,
             wa,
             shippingFee,
+            payment,
           };
         }
       }
@@ -48,6 +57,10 @@ export default function App() {
     }
     return initialStoreConfig;
   });
+
+  // Firebase auth state for admin
+  const [adminUser, setAdminUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(() => isUserAdmin(null));
 
   // Cart state with localStorage persistence
   const [cart, setCart] = useState<CartState>(() => {
@@ -74,6 +87,45 @@ export default function App() {
   // Drawer / modal states
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // Initialize Firebase and subscribe to real-time store config & admin auth
+  useEffect(() => {
+    testConnection();
+
+    // Subscribe to admin auth state changes
+    const unsubAuth = subscribeAdminAuth((user, isAdm) => {
+      setAdminUser(user);
+      setIsAdmin(isAdm);
+    });
+
+    // Subscribe to Firestore live store configuration
+    const unsubStore = subscribeStoreConfigFromFirestore((liveConfig) => {
+      setStoreConfig((prev) => {
+        const merged: StoreConfig = {
+          ...prev,
+          ...liveConfig,
+          products:
+            liveConfig.products && liveConfig.products.length > 0
+              ? liveConfig.products
+              : prev.products,
+          payment: {
+            cashApp: liveConfig.payment?.cashApp ?? prev.payment?.cashApp ?? "",
+            zelle: liveConfig.payment?.zelle ?? prev.payment?.zelle ?? "",
+            applePay: liveConfig.payment?.applePay ?? prev.payment?.applePay ?? "",
+          },
+        };
+        try {
+          localStorage.setItem(STORE_CONFIG_KEY, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
+    });
+
+    return () => {
+      unsubAuth();
+      unsubStore();
+    };
+  }, []);
 
   // Sync theme attribute on document root
   useEffect(() => {
@@ -128,13 +180,21 @@ export default function App() {
     saveCart(nextCart);
   };
 
-  // Save admin config handler
-  const handleSaveConfig = (newConfig: StoreConfig) => {
+  // Save admin config handler - updates localStorage and saves to Cloud Firestore
+  const handleSaveConfig = async (newConfig: StoreConfig) => {
     setStoreConfig(newConfig);
     try {
       localStorage.setItem(STORE_CONFIG_KEY, JSON.stringify(newConfig));
     } catch (e) {
       console.warn("Failed to save config to localStorage", e);
+    }
+
+    // Persist to Cloud Firestore
+    try {
+      await saveStoreConfigToFirestore(newConfig, adminUser);
+    } catch (err: any) {
+      console.warn("Firestore save notice:", err);
+      throw err;
     }
   };
 
@@ -191,6 +251,7 @@ export default function App() {
         storeName={storeConfig.name}
         whatsAppPhone={storeConfig.wa}
         shippingFee={storeConfig.shippingFee ?? 10.99}
+        paymentConfig={storeConfig.payment || initialStoreConfig.payment}
       />
 
       {/* Store Admin Panel */}
@@ -200,6 +261,9 @@ export default function App() {
         config={storeConfig}
         onSaveConfig={handleSaveConfig}
         onResetDefaults={handleResetDefaults}
+        adminUser={adminUser}
+        isAdmin={isAdmin}
+        onAdminVerified={() => setIsAdmin(isUserAdmin(adminUser))}
       />
     </div>
   );

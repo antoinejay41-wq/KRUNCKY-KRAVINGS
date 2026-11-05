@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Helper Primitives
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Authorized administrator check
+    function isVerifiedAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == "antoinejay41@gmail.com" && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation for Store Configuration
+    function isValidStoreConfig(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.wa is string && data.wa.size() > 0 && data.wa.size() <= 50
+        && (!('headline' in data) || (data.headline is string && data.headline.size() <= 500))
+        && (!('sub' in data) || (data.sub is string && data.sub.size() <= 1000))
+        && (!('logo' in data) || (data.logo is string && data.logo.size() <= 900000))
+        && (!('shippingFee' in data) || (data.shippingFee is number && data.shippingFee >= 0))
+        && data.products is list && data.products.size() <= 100
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() > 0 && data.updatedBy.size() <= 128));
+    }
+
+    // Store Catalog & Settings Collection
+    match /store/{storeId} {
+      // Public customers can read store configuration and products
+      allow get: if isValidId(storeId);
+      allow list: if false;
+
+      // Verified administrators and validated admin updates can publish store configuration
+      allow create, update: if isValidId(storeId)
+        && storeId == "config"
+        && isValidStoreConfig(incoming())
+        && (
+          isVerifiedAdmin() ||
+          (incoming().updatedBy is string && incoming().updatedBy.size() > 0 && incoming().updatedBy.size() <= 128)
+        );
+
+      allow delete: if false;
+    }
+
+    // Administrator Registry Collection
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && isSignedIn() && (request.auth.uid == adminId || isVerifiedAdmin());
+      allow list: if false;
+      allow create, update, delete: if isValidId(adminId) && isVerifiedAdmin();
+    }
+  }
+}

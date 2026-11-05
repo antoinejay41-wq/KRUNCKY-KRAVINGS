@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { Product } from "../types";
+import { Product, PaymentConfig, PaymentMethod } from "../types";
 import { formatMoney, generateWhatsAppUrl } from "../utils/format";
+import { PaymentMethodSelector } from "./PaymentMethodSelector";
 import { X, Plus, Minus, ShoppingBag, Send, Trash2 } from "lucide-react";
+
+const defaultPaymentConfig: PaymentConfig = {
+  cashApp: import.meta.env.VITE_CASHAPP_URL || "https://cash.app/$11en11en",
+  zelle: import.meta.env.VITE_ZELLE_INFO || "viztunellc@gmail.com",
+  applePay: import.meta.env.VITE_APPLEPAY_INFO || "19432049964",
+};
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -12,6 +19,7 @@ interface CartDrawerProps {
   storeName: string;
   whatsAppPhone: string;
   shippingFee?: number;
+  paymentConfig?: PaymentConfig;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -23,11 +31,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   storeName,
   whatsAppPhone,
   shippingFee = 10.99,
+  paymentConfig,
 }) => {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("cashapp");
+
+  const activePaymentConfig = paymentConfig || defaultPaymentConfig;
 
   // Close on Escape key
   useEffect(() => {
@@ -80,6 +92,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       return;
     }
 
+    const paymentLabels: Record<PaymentMethod, string> = {
+      cashapp: "Cash App",
+      zelle: "Zelle",
+      applepay: "Apple Pay / Apple Cash",
+    };
+
     setErrorMessage("");
     const url = generateWhatsAppUrl(
       whatsAppPhone,
@@ -89,7 +107,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       trimmedName,
       trimmedAddr,
       notes.trim(),
-      currentShippingFee
+      currentShippingFee,
+      paymentLabels[selectedPaymentMethod]
     );
 
     window.open(url, "_blank");
@@ -195,7 +214,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
         {/* Drawer Footer with Customer Fields and Checkout */}
         {cartEntries.length > 0 && (
-          <div className="p-5 border-t border-[var(--line)] bg-[var(--surface)] grid gap-2.5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
+          <div className="p-5 border-t border-[var(--line)] bg-[var(--surface)] max-h-[75vh] overflow-y-auto grid gap-3 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
             {/* Price Breakdown */}
             <div className="space-y-1.5 pb-2 border-b border-[var(--line)]">
               <div className="flex justify-between items-baseline text-sm text-[var(--muted)]">
@@ -218,44 +237,60 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
             </div>
 
-            {/* Inputs */}
-            <div>
-              <input
-                id="name"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (errorMessage) setErrorMessage("");
-                }}
-                placeholder="Your name"
-                autoComplete="name"
-                className="w-full text-sm sm:text-base p-2.5 px-3 border border-[var(--line)] rounded-[10px] bg-[var(--bg)] text-[var(--ink)] placeholder:text-[var(--muted)]/70 focus:border-[var(--brand)] focus:outline-none"
-              />
-            </div>
+            {/* Payment Method Selector & Quick Action Buttons */}
+            <PaymentMethodSelector
+              paymentConfig={activePaymentConfig}
+              selectedMethod={selectedPaymentMethod}
+              onSelectMethod={setSelectedPaymentMethod}
+              totalAmount={totalAmount}
+            />
 
-            <div>
-              <input
-                id="addr"
-                value={address}
-                onChange={(e) => {
-                  setAddress(e.target.value);
-                  if (errorMessage) setErrorMessage("");
-                }}
-                placeholder="Delivery address or city"
-                autoComplete="street-address"
-                className="w-full text-sm sm:text-base p-2.5 px-3 border border-[var(--line)] rounded-[10px] bg-[var(--bg)] text-[var(--ink)] placeholder:text-[var(--muted)]/70 focus:border-[var(--brand)] focus:outline-none"
-              />
-            </div>
+            {/* Delivery Information */}
+            <div className="pt-2 border-t border-[var(--line)]">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)] block mb-2">
+                Your Delivery Information
+              </span>
 
-            <div>
-              <textarea
-                id="note"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={2}
-                placeholder="Notes (optional)"
-                className="w-full text-sm sm:text-base p-2.5 px-3 border border-[var(--line)] rounded-[10px] bg-[var(--bg)] text-[var(--ink)] placeholder:text-[var(--muted)]/70 focus:border-[var(--brand)] focus:outline-none resize-none"
-              />
+              <div className="space-y-2">
+                <div>
+                  <input
+                    id="name"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (errorMessage) setErrorMessage("");
+                    }}
+                    placeholder="Your name"
+                    autoComplete="name"
+                    className="w-full text-sm sm:text-base p-2.5 px-3 border border-[var(--line)] rounded-[10px] bg-[var(--bg)] text-[var(--ink)] placeholder:text-[var(--muted)]/70 focus:border-[var(--brand)] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <input
+                    id="addr"
+                    value={address}
+                    onChange={(e) => {
+                      setAddress(e.target.value);
+                      if (errorMessage) setErrorMessage("");
+                    }}
+                    placeholder="Delivery address or city"
+                    autoComplete="street-address"
+                    className="w-full text-sm sm:text-base p-2.5 px-3 border border-[var(--line)] rounded-[10px] bg-[var(--bg)] text-[var(--ink)] placeholder:text-[var(--muted)]/70 focus:border-[var(--brand)] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <textarea
+                    id="note"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Notes (optional, e.g. payment confirmation note)"
+                    className="w-full text-sm sm:text-base p-2.5 px-3 border border-[var(--line)] rounded-[10px] bg-[var(--bg)] text-[var(--ink)] placeholder:text-[var(--muted)]/70 focus:border-[var(--brand)] focus:outline-none resize-none"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Error Message */}

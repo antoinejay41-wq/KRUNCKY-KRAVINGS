@@ -16,20 +16,14 @@
   - Instant add-to-cart with interactive feedback.
   - Real-time stock status (in-stock / sold out).
 
-- **📊 Built-in Merchant Admin Panel**:
-  - Accessible via the **Admin** link in the footer.
-  - Update store name, brand logo, headline, and subtext.
-  - Configure the merchant WhatsApp phone number (with automatic country code validation).
-  - Customize standard shipping fees.
-  - Complete product catalog management: add new package sizes, edit prices, toggle sold-out status, or upload custom imagery.
+- **🔥 Firebase Authentication, Firestore & Cloud Storage**:
+  - Secure Google Authentication for the store administrator (`antoinejay41@gmail.com`).
+  - Real-time persistence with Cloud Firestore for store settings, payment details, and live catalog.
+  - Cloud Storage integration allowing the admin to upload new logos and package photos seamlessly with in-browser previews and instant updates.
+  - "Save & Stay on Page" or "Save & Publish" options so the admin can continue editing without interruption.
 
-- **🎨 Tailored Visual Identity & Theme Mode**:
-  - Styled with a dark plum/purple aesthetic (`#1a1022`, `#25172f`, `#c77bf0`, `#ee7ee0`, `#25b866`).
-  - Seamless Dark/Light mode toggle.
-  - Custom brand typography using Google Fonts (`Bagel Fat One` & `Fredoka`).
-
-- **💾 Client-side Persistence**:
-  - Cart contents and merchant catalog customizations persist reliably in `localStorage`.
+- **💾 Client-side & Cloud Persistence**:
+  - Cart contents and preferences persist in `localStorage` while store configuration synchronizes across all users via Firebase.
 
 ---
 
